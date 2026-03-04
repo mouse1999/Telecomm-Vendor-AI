@@ -1,0 +1,145 @@
+@startuml high_level_design
+!theme cerulean-outline
+skinparam backgroundColor #F8F9FA
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam linetype ortho
+skinparam nodesep 70
+skinparam ranksep 80
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam ArrowThickness 2
+
+skinparam package {
+  BorderColor #888888
+  BorderThickness 2
+  FontStyle bold
+  FontSize 13
+}
+
+skinparam component {
+  BorderThickness 1.5
+}
+
+title DataBot NG — High Level Design\nWhat the system does · How the major parts connect
+
+' ══════════════════════════════════════
+' EXTERNAL WORLD
+' ══════════════════════════════════════
+
+actor  "Nigerian User"          as USER   #DDE8FF
+cloud  "Telegram"               as TG     #E3F2FD
+cloud  "OpenAI"                 as AI     #FFF9C4
+cloud  "Data Vendor"            as VENDOR #FFE0B2
+cloud  "Bank\n(Providus/Wema)"  as BANK   #E8F5E9
+
+' ══════════════════════════════════════
+' THE APPLICATION — 3 HORIZONTAL ZONES
+' ══════════════════════════════════════
+
+package "① Receive & Route" as ZONE1 #EEF2FF {
+
+  component "Telegram Bot\nEntry Point" as BOT     #C5CAE9
+  component "PIN Session\nGuard"        as GUARD   #FFF9C4
+  component "AI Chat Router\n(Spring AI + Tools)" as ROUTER #FFE082
+
+}
+
+package "② Business Logic\n(Spring Modulith — 5 Bounded Contexts)" as ZONE2 #F1F8FF {
+
+  component "Identity\n─────────\nPIN validate\nBCrypt · Redis\nsession write"         as ID   #D5E8D4
+
+  component "Billing\n─────────\nWallet debit\nWallet credit\nVirtual account"          as BL   #F8CECC
+
+  component "Sales\n─────────\nOrder create\nAtomicdebit+event\nOrder state machine"    as SL   #DAE8FC
+
+  component "Knowledge\n─────────\nRAG price search\nNetwork status\nDoc ingestion"     as KN   #FFE6CC
+
+  component "Delivery\n─────────\nVendor API call\n@Retryable 3x\nTelegram notify"      as DL   #E8EAF6
+
+}
+
+package "③ Observe & Alert" as ZONE3 #FAF0E6 {
+
+  component "Admin &\nMetrics\n─────────\nGrafana · Prometheus\nDead-letter alerts\nHealth indicators" as OBS #EDE7F6
+
+}
+
+' ══════════════════════════════════════
+' INFRASTRUCTURE (bottom)
+' ══════════════════════════════════════
+
+package "Infrastructure" as INFRA #F0FFF0 {
+
+  database "PostgreSQL 16\n+ PGVector\n(source of truth)"   as PG    #90EE90
+
+  database "Redis 7\n(session cache\nTTL 15 min)"           as REDIS #98FB98
+
+  queue    "Apache Kafka\n(event spine\n7 topics)"          as KAFKA #FFFACD
+
+}
+
+' ══════════════════════════════════════
+' RELATIONSHIPS
+' ══════════════════════════════════════
+
+' User journey  [blue]
+USER    -[#1565C0]->  TG      : chat message
+TG      -[#1565C0]->  BOT     : webhook / long-poll
+BOT     -[#1565C0]->  GUARD   : check session
+GUARD   -[#6A1B9A]->  REDIS   : GET session:{chatId}
+BOT     -[#2E7D32]->  ROUTER  : route to AI
+
+' AI dispatches to domain  [green]
+ROUTER  -[#2E7D32]->  AI      : LLM chat completion\n+ embeddings
+ROUTER  -[#6A1B9A]->  ID      : validatePin() / registerUser()
+ROUTER  -[#E65100]->  BL      : checkBalance() / getVirtualAccount()
+ROUTER  -[#00838F]->  SL      : placeOrder()
+ROUTER  -[#558B2F]->  KN      : searchPlans() / networkStatus()
+
+' Payment top-up  [orange]
+BANK    -[#E65100]->  BOT     : POST /webhook/payment\nHMAC-SHA256
+BOT     -[#E65100]->  BL      : credit wallet
+
+' Domain → Infrastructure  [brown]
+ID      -[#4E342E]->  PG      : user_accounts
+ID      -[#6A1B9A]->  REDIS   : SET session token
+BL      -[#4E342E]->  PG      : wallets · transactions
+SL      -[#4E342E]->  PG      : orders
+KN      -[#4E342E]->  PG      : knowledge_chunks\nnetwork_status_entries
+
+' Event flow  [red]
+SL      -[#D32F2F]->  KAFKA   : DataProvisionRequested\n(via Modulith Outbox)
+ID      -[#D32F2F]->  KAFKA   : UserSessionUnlocked\n(via Modulith Outbox)
+KAFKA   -[#D32F2F]->  DL      : consume → call vendor
+KAFKA   -[#E65100]->  BL      : consume → refund / credit
+
+' Delivery  [teal]
+DL      -[#00838F]->  VENDOR  : provision data API
+DL      -[#1565C0]->  TG      : send result to user
+TG      -[#1565C0]->  USER    : ✅ delivered / ❌ failed + refunded
+
+' Observability  [slate]
+ZONE2   -[#37474F]->  OBS     : metrics · traces · health
+OBS     -[#37474F]->  KAFKA   : dead-letter alerts
+OBS     -[#37474F]->  TG      : admin Telegram alerts
+
+' ══════════════════════════════════════
+' LEGEND
+' ══════════════════════════════════════
+
+legend bottom right
+  |= Color         |= Flow                        |
+  | <#1565C0> Blue   | User & Telegram messages     |
+  | <#2E7D32> Green  | AI routing & tool dispatch   |
+  | <#6A1B9A> Purple | Identity & session           |
+  | <#E65100> Orange | Billing & wallet             |
+  | <#00838F> Teal   | Sales & delivery             |
+  | <#558B2F> Olive  | Knowledge & RAG              |
+  | <#D32F2F> Red    | Kafka event flow             |
+  | <#4E342E> Brown  | Database persistence         |
+  | <#37474F> Slate  | Observability                |
+endlegend
+
+@enduml

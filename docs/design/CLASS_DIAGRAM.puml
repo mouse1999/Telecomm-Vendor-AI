@@ -1,0 +1,204 @@
+@startuml
+title AI Data Vending Bot - Class Diagram (Domain + Services + Ports)
+
+skinparam classAttributeIconSize 0
+
+' ==============================
+' ========== ENUMS =============
+' ==============================
+
+enum TransactionType {
+    FUNDING
+    VENDING
+    REFUND
+}
+
+enum TransactionStatus {
+    PENDING
+    SUCCESS
+    FAILED
+}
+
+enum PaymentMethod {
+    PAYSTACK
+    CRYPTO
+}
+
+enum OrderStatus {
+    INITIATED
+    PROCESSING
+    COMPLETED
+    FAILED
+}
+
+enum NetworkProvider {
+    MTN
+    AIRTEL
+    GLO
+    NINE_MOBILE
+}
+
+' ==============================
+' ========== DOMAIN =============
+' ==============================
+
+class User {
+    - Long id
+    - String telegramId
+    - String username
+    - String phoneNumber
+    - LocalDateTime createdAt
+    - LocalDateTime updatedAt
+    + updatePhoneNumber(String phone)
+}
+
+class Wallet {
+    - Long id
+    - BigDecimal balance
+    - Long userId
+    - LocalDateTime createdAt
+    + credit(BigDecimal amount)
+    + debit(BigDecimal amount)
+    + hasSufficientBalance(BigDecimal amount) : boolean
+}
+
+class Transaction {
+    - Long id
+    - String reference
+    - BigDecimal amount
+    - TransactionType type
+    - TransactionStatus status
+    - PaymentMethod paymentMethod
+    - Long userId
+    - LocalDateTime createdAt
+    + markSuccess()
+    + markFailed()
+}
+
+class DataOrder {
+    - Long id
+    - String phoneNumber
+    - NetworkProvider provider
+    - String dataPlanCode
+    - BigDecimal price
+    - OrderStatus status
+    - Long userId
+    - LocalDateTime createdAt
+    + markProcessing()
+    + markCompleted()
+    + markFailed()
+}
+
+' ==============================
+' ========== SERVICES ===========
+' ==============================
+
+class UserService {
+    + User registerOrGetUser(String telegramId, String username)
+    + User getUserByTelegramId(String telegramId)
+    + void updatePhone(Long userId, String phone)
+}
+
+class WalletService {
+    + Wallet getWallet(Long userId)
+    + void creditWallet(Long userId, BigDecimal amount)
+    + void debitWallet(Long userId, BigDecimal amount)
+}
+
+class TransactionService {
+    + Transaction createTransaction(Long userId, BigDecimal amount, TransactionType type, PaymentMethod method)
+    + void markTransactionSuccess(String reference)
+    + void markTransactionFailed(String reference)
+}
+
+class VendingService {
+    + void purchaseData(Long userId, String phone, NetworkProvider provider, String planCode)
+}
+
+class FundingService {
+    + String initiateFunding(Long userId, BigDecimal amount, PaymentMethod method)
+    + void confirmFunding(String reference)
+}
+
+class CryptoService {
+    + String generateDepositAddress(Long userId)
+    + void confirmCryptoPayment(String txHash)
+}
+
+class AIService {
+    + String processUserQuery(String message)
+}
+
+class KnowledgeService {
+    + List<String> searchRelevantContext(String query)
+}
+
+' ==============================
+' ========== PORTS =============
+' ==============================
+
+interface LlmPort {
+    + String generateResponse(String prompt)
+}
+
+interface VectorStorePort {
+    + List<String> similaritySearch(String query)
+}
+
+interface PaymentPort {
+    + String createPaymentLink(Long userId, BigDecimal amount)
+    + boolean verifyPayment(String reference)
+}
+
+interface CryptoPaymentPort {
+    + boolean verifyTransaction(String txHash)
+}
+
+interface ExchangeRatePort {
+    + BigDecimal convertToLocal(BigDecimal amount, String currency)
+}
+
+interface VendorPort {
+    + boolean vendData(String phone, NetworkProvider provider, String planCode)
+}
+
+interface UserRepositoryPort {
+    + Optional<User> findByTelegramId(String telegramId)
+    + User save(User user)
+}
+
+interface TransactionRepositoryPort {
+    + Transaction save(Transaction transaction)
+    + Optional<Transaction> findByReference(String reference)
+}
+
+' ==============================
+' ========== RELATIONSHIPS =====
+' ==============================
+
+User "1" -- "1" Wallet
+User "1" -- "*" Transaction
+User "1" -- "*" DataOrder
+
+Transaction --> TransactionType
+Transaction --> TransactionStatus
+Transaction --> PaymentMethod
+
+DataOrder --> OrderStatus
+DataOrder --> NetworkProvider
+
+UserService --> UserRepositoryPort
+WalletService --> UserRepositoryPort
+TransactionService --> TransactionRepositoryPort
+VendingService --> VendorPort
+VendingService --> TransactionService
+VendingService --> WalletService
+FundingService --> PaymentPort
+FundingService --> TransactionService
+CryptoService --> CryptoPaymentPort
+CryptoService --> ExchangeRatePort
+CryptoService --> TransactionService
+AIService --> LlmPort
+KnowledgeService --> VectorStorePort
+
+@enduml

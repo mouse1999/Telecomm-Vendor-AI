@@ -1,0 +1,267 @@
+@startuml system_architecture_full
+!theme cerulean-outline
+skinparam backgroundColor #F8F9FA
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam linetype ortho
+skinparam nodesep 55
+skinparam ranksep 65
+skinparam packageStyle rectangle
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam ArrowThickness 1.8
+
+skinparam package {
+  BorderColor #AAAAAA
+  BorderThickness 1.5
+  FontStyle bold
+  FontSize 12
+}
+
+title DataBot NG — Full System Architecture\nEvent-Driven · Spring Modulith · DDD · Java 21
+
+' ═══════════════════════════════
+' LAYER 0 — EXTERNAL ACTORS
+' ═══════════════════════════════
+
+actor       "Telegram User"                   as USER      #DDE8FF
+cloud       "Telegram API"                    as TELEGRAM  #E3F2FD
+cloud       "OpenAI API\n(LLM + Embeddings)"  as OPENAI    #FFF9C4
+cloud       "Data Vendor API\n(3rd Party)"    as VENDOR    #FFE0B2
+cloud       "Payment Gateway\n(Providus / Wema)" as BANK   #E8F5E9
+
+' ═══════════════════════════════
+' LAYER 1 — ENTRY POINTS
+' ═══════════════════════════════
+
+package "Entry Layer" as ENTRY #EEF2FF {
+
+  component "TelegramBotHandler\n<<@Component>>\nlong-poll / webhook receiver" as BOT      #C5CAE9
+
+  component "PaymentWebhookController\n<<@RestController>>\nPOST /webhook/payment"  as WEBHOOK #C5CAE9
+
+  component "SessionGuard\n<<@Component>>\nRedis session check"                     as GUARD   #FFF9C4
+
+}
+
+' ═══════════════════════════════
+' LAYER 2 — AI ROUTING LAYER
+' ═══════════════════════════════
+
+package "AI Routing Layer" as AI_LAYER #FFF8E1 {
+
+  component "Spring AI ChatClient\n<<ChatClient>>\nSystem Prompt + ChatMemory\n(per chatId, last 10 turns)" as CHATCLIENT #FFE082
+
+  package "PurchaseOrchestrationTools\n<<@Component — @Tool methods>>" as TOOLS_PKG #FFF3CD {
+
+    component "validatePhoneNetwork()" as T1 #FFFDE7
+    component "checkWalletBalance()"   as T2 #FFFDE7
+    component "initiatePurchase()"     as T3 #FFFDE7
+    component "checkNetworkStatus()"   as T4 #FFFDE7
+    component "getVirtualAccount()"    as T5 #FFFDE7
+
+  }
+
+}
+
+' ═══════════════════════════════
+' LAYER 3 — DOMAIN MODULES
+' ═══════════════════════════════
+
+package "Domain Layer  ·  Spring Modulith" as DOMAIN #F1F8FF {
+
+  package "identity module" as MOD_ID #D5E8D4 {
+
+    component "IdentityService\n<<@Service>>\nvalidatePin() · registerUser()" as IDENTITY  #B9E0C0
+    component "NigerianPhoneValidator\n<<@Component>>\nprefix map · 4 networks" as VALIDATOR #B9E0C0
+    component "UserAccount <<AR>>\n<<@Entity>>\nchatId · pinHash\nrecordFailedAttempt()" as UA #B9E0C0
+
+  }
+
+  package "billing module" as MOD_BL #F8CECC {
+
+    component "BillingService\n<<@Service>>\ndebit() · credit() · refund()" as BILLING   #F4B8B8
+    component "SessionSyncConsumer\n<<Kafka Consumer>>\nidentity.events"    as SESSSYNC  #F4B8B8
+    component "Wallet <<AR>>\n<<@Entity>>\nbalance: Money\ndebit() · canAfford()" as WALLET #F4B8B8
+
+  }
+
+  package "sales module" as MOD_SL #DAE8FC {
+
+    component "OrderService\n<<@Service>>\nplaceOrder() @Transactional"         as ORDERSVC #B3D4F5
+    component "Order <<AR>>\n<<@Entity>>\norderRef · status\nmarkDelivered()"   as ORDER    #B3D4F5
+
+  }
+
+  package "knowledge module" as MOD_KN #FFE6CC {
+
+    component "KnowledgeService\n<<@Service>>\nsearchPlans() · getNetworkStatus()" as KNOWLEDGE #FFD4A8
+    component "DocumentIngestionService\n<<@Service>>\n@EventListener(AppReadyEvent)" as INGEST #FFD4A8
+    component "NetworkStatusEntry <<AR>>\n<<@Entity>>"                              as NSE      #FFD4A8
+    component "KnowledgeChunk <<AR>>\n<<@Entity>>\nembedding: vector(1536)"         as KC       #FFD4A8
+
+  }
+
+  package "delivery module" as MOD_DL #E8EAF6 {
+
+    component "DeliveryEventConsumer\n<<Kafka Consumer>>\n@Retryable(3x, 2s→4s→8s)" as DELIVERY #C5CAE9
+    component "TelegramNotificationService\n<<@Service>>\nsend success / failure msg" as NOTIFIER #C5CAE9
+
+  }
+
+  package "admin module" as MOD_AD #EDE7F6 {
+
+    component "SalesMetricsService\n<<@Component>>\nMicrometer counters + timers"        as METRICS  #D1C4E9
+    component "DeadLetterAlertService\n<<@Scheduled>>\n@Scheduled every 60s"             as DLALERT  #D1C4E9
+    component "VectorStoreHealthIndicator\n<<HealthIndicator>>"                           as HEALTH   #D1C4E9
+    component "AdminCommandHandler\n<<@Component>>\nAdminGuard chatId check\nreset / stats commands" as ADMINCTL #D1C4E9
+
+  }
+
+}
+
+' ═══════════════════════════════
+' LAYER 4 — TRANSACTIONAL OUTBOX
+' ═══════════════════════════════
+
+package "Transactional Outbox" as OUTBOX_LAYER #FFF8DC {
+
+  database "event_publication\n<<Spring Modulith JPA>>\nstatus: STARTED → COMPLETED\nrepublisher: every 60s" as OUTBOX #F5DEB3
+
+}
+
+' ═══════════════════════════════
+' LAYER 5 — MESSAGING
+' ═══════════════════════════════
+
+package "Apache Kafka  ·  KRaft mode" as KAFKA_LAYER #FFFFF0 {
+
+  queue "identity.events\n3 partitions · 7d"             as K1 #FFFACD
+  queue "sales.provision.requested\n6 partitions · 14d"  as K2 #FFFACD
+  queue "sales.provision.delivered\n6 partitions · 14d"  as K3 #FFFACD
+  queue "sales.provision.failed\n3 partitions · 30d"     as K4 #FFFACD
+  queue "wallet.events\n3 partitions · 30d"              as K5 #FFFACD
+  queue "admin.alerts\n1 partition · 7d"                 as K6 #FFFACD
+  queue "delivery.dlq\n1 partition · 90d"                as K7 #FFE4B5
+
+}
+
+' ═══════════════════════════════
+' LAYER 6 — PERSISTENCE
+' ═══════════════════════════════
+
+package "Persistence Layer" as PERSIST #F0FFF0 {
+
+  database "PostgreSQL 16 + PGVector\n<<Primary Store>>\nuser_accounts · wallets · wallet_transactions\nvirtual_accounts · orders\nnetwork_status_entries · knowledge_chunks\nevent_publication" as PG    #90EE90
+
+  database "Redis 7\n<<Session Cache>>\nsession:{chatId}          TTL 15min\nbilling_session:{chatId}  TTL 15min\npin_attempts:{chatId}     TTL 15min"                                          as REDIS #98FB98
+
+}
+
+' ═══════════════════════════════
+' LAYER 7 — OBSERVABILITY
+' ═══════════════════════════════
+
+package "Observability Stack" as OBS_LAYER #FAF0E6 {
+
+  component "OTel Collector\n<<OTLP :4317>>"    as OTEL    #DEB887
+  component "Prometheus\n<<scrapes /actuator>>" as PROM    #DEB887
+  component "Grafana Tempo\n<<trace store>>"    as TEMPO   #DEB887
+  component "Grafana Dashboards\n<<UI>>"        as GRAFANA #DEB887
+
+}
+
+' ═══════════════════════════════════════════════════════
+' RELATIONSHIPS
+' Color key:
+'   #1565C0 blue    — user / Telegram flow
+'   #2E7D32 green   — AI routing & tool dispatch
+'   #6A1B9A purple  — identity & session
+'   #E65100 orange  — billing & wallet
+'   #00838F teal    — sales / order lifecycle
+'   #558B2F olive   — knowledge / RAG
+'   #D32F2F red     — Kafka event flow
+'   #4E342E brown   — persistence reads/writes
+'   #37474F slate   — observability
+' ═══════════════════════════════════════════════════════
+
+' — External to Entry  [blue] —
+USER       -[#1565C0]->  TELEGRAM   : sends message
+TELEGRAM   -[#1565C0]->  BOT        : HTTPS long-poll / webhook
+BANK       -[#E65100]->  WEBHOOK    : POST /webhook/payment\n+ HMAC-SHA256 header
+
+' — Entry Layer internal  [blue / purple] —
+BOT        -[#1565C0]->  GUARD      : check on every message
+GUARD      -[#6A1B9A]->  REDIS      : GET session:{chatId}
+BOT        -[#2E7D32]->  CHATCLIENT : route to AI
+WEBHOOK    -[#E65100]->  BILLING    : credit(amount)
+
+' — AI Layer  [green] —
+CHATCLIENT -[#2E7D32]->  OPENAI     : POST /v1/chat/completions
+CHATCLIENT -[#2E7D32]->  TOOLS_PKG  : @Tool method dispatch
+CHATCLIENT -[#558B2F]->  KNOWLEDGE  : RAG similaritySearch(k=5)
+T1         -[#2E7D32]->  VALIDATOR  : prefix lookup
+T2         -[#E65100]->  BILLING    : getBalance(chatId)
+T3         -[#00838F]->  ORDERSVC   : placeOrder()
+T4         -[#558B2F]->  KNOWLEDGE  : getNetworkStatus()
+T5         -[#E65100]->  BILLING    : getVirtualAccount()
+
+' — Identity Module  [purple] —
+IDENTITY   -[#6A1B9A]->  UA         : load · save
+IDENTITY   -[#6A1B9A]->  REDIS      : SET session:{chatId}
+IDENTITY   -[#4E342E]->  PG         : BCrypt verify
+IDENTITY   -[#D32F2F]->  OUTBOX     : publishEvent(UserSessionUnlocked)
+
+' — Billing Module  [orange] —
+BILLING    -[#E65100]->  WALLET     : load · debit · credit
+BILLING    -[#4E342E]->  PG         : wallets · wallet_transactions\nvirtual_accounts
+SESSSYNC   -[#6A1B9A]->  REDIS      : SET billing_session:{chatId}
+
+' — Sales Module  [teal] —
+ORDERSVC   -[#00838F]->  ORDER      : create · save
+ORDERSVC   -[#E65100]->  BILLING    : debit(amount)
+ORDERSVC   -[#D32F2F]->  OUTBOX     : publishEvent(DataProvisionRequested)
+ORDERSVC   -[#4E342E]->  PG         : orders table
+
+' — Knowledge Module  [olive] —
+KNOWLEDGE  -[#558B2F]->  KC         : similaritySearch
+KNOWLEDGE  -[#558B2F]->  NSE        : findRecentByNetwork
+INGEST     -[#558B2F]->  OPENAI     : POST /v1/embeddings
+INGEST     -[#4E342E]->  PG         : INSERT knowledge_chunks
+
+' — Outbox → Kafka  [red] —
+OUTBOX     -[#D32F2F]->  K1         : UserSessionUnlocked\n(after @Transactional commit)
+OUTBOX     -[#D32F2F]->  K2         : DataProvisionRequested\n(after @Transactional commit)
+OUTBOX     -[#D32F2F]->  K5         : WalletCredited
+OUTBOX     -[#4E342E]->  PG         : event_publication table
+
+' — Kafka Consumers  [red] —
+K1         -[#D32F2F]->  SESSSYNC   : consume UserSessionUnlocked
+K2         -[#D32F2F]->  DELIVERY   : consume DataProvisionRequested
+K4         -[#E65100]->  BILLING    : consume DataDeliveryFailed\n→ refund()
+K5         -[#E65100]->  BILLING    : consume WalletCredited\n→ credit()
+
+' — Delivery Module  [teal / red] —
+DELIVERY   -[#00838F]->  VENDOR     : POST /provision\n@Retryable(3x)
+DELIVERY   -[#00838F]->  ORDER      : markDelivered() / markFailed()
+DELIVERY   -[#D32F2F]->  K3         : produce DataDelivered
+DELIVERY   -[#D32F2F]->  K4         : produce DataDeliveryFailed
+DELIVERY   -[#D32F2F]->  K7         : produce to DLQ on exhaust
+K3         -[#1565C0]->  NOTIFIER   : consume DataDelivered
+K4         -[#1565C0]->  NOTIFIER   : consume DataDeliveryFailed
+NOTIFIER   -[#1565C0]->  TELEGRAM   : sendMessage(chatId)
+
+' — Admin Module  [slate] —
+METRICS    -[#4E342E]->  PG         : event_publication COUNT gauge
+DLALERT    -[#1565C0]->  TELEGRAM   : direct HTTP alert (not via Kafka)
+DLALERT    -[#D32F2F]->  K6         : produce admin.alerts
+ADMINCTL   -[#4E342E]->  PG         : reset event_publication status
+HEALTH     -[#4E342E]->  PG         : COUNT knowledge_chunks
+
+' — Observability  [slate] —
+METRICS    -[#37474F]->  PROM       : /actuator/prometheus
+PROM       -[#37474F]->  GRAFANA    : scrape metrics
+OTEL       -[#37474F]->  TEMPO      : OTLP traces
+TEMPO      -[#37474F]->  GRAFANA    : trace queries
+
+@enduml

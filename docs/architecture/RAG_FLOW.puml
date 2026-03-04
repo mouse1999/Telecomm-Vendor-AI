@@ -1,0 +1,33 @@
+@startuml
+title Smart Data Discovery (RAG Flow)
+
+actor User
+participant "Telegram API" as TelegramAPI
+participant "Telegram Controller" as TelegramCtrl
+participant "Orchestrator" as Orchestrator
+participant "AI Service" as AIService
+participant "Knowledge Service (RAG)" as KnowledgeService
+participant "Vector Store Adapter" as VectorAdapter
+participant "Vector Store" as VectorDB
+participant "LLM Adapter" as LlmAdapter
+participant "LLM" as LLM
+
+User -> TelegramAPI: sends message
+TelegramAPI -> TelegramCtrl: receive message
+TelegramCtrl -> Orchestrator: handle message
+Orchestrator -> AIService: process user query
+AIService -> KnowledgeService: search relevant data
+KnowledgeService -> VectorAdapter: query vector store
+VectorAdapter -> VectorDB: retrieve embeddings
+VectorDB --> VectorAdapter: return results
+VectorAdapter --> KnowledgeService: results
+KnowledgeService --> AIService: relevant data
+AIService -> LlmAdapter: generate natural response
+LlmAdapter -> LLM: call LLM API
+LLM --> LlmAdapter: return response
+LlmAdapter --> AIService: response
+AIService --> Orchestrator: final message
+Orchestrator --> TelegramCtrl: send message
+TelegramCtrl -> TelegramAPI: deliver message
+TelegramAPI --> User: display response
+@enduml
