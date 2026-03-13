@@ -1,0 +1,406 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- ═══════════════════════════════════════════════════════
+         PARENT
+         Spring Boot 3.4.1 — stable GA release on Maven Central
+         ═══════════════════════════════════════════════════════ -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.1</version>
+        <relativePath/>
+    </parent>
+
+    <!-- ═══════════════════════════════════════════════════════
+         PROJECT
+         ═══════════════════════════════════════════════════════ -->
+    <groupId>com.databot</groupId>
+    <artifactId>databot-ng</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+    <name>databot-ng</name>
+    <description>AI-powered Telegram bot for selling Nigerian mobile data bundles</description>
+
+    <!-- ═══════════════════════════════════════════════════════
+         PROPERTIES
+         ═══════════════════════════════════════════════════════ -->
+    <properties>
+        <java.version>21</java.version>
+
+        <!--
+            Spring AI 1.0.0 — GA release, available on Maven Central.
+            NOTE: artifact IDs changed in 1.0.0 GA vs earlier milestones:
+              OLD: spring-ai-openai-spring-boot-starter
+              NEW: spring-ai-starter-model-openai
+              OLD: spring-ai-pgvector-store-spring-boot-starter
+              NEW: spring-ai-starter-vector-store-pgvector
+              OLD: spring-ai-redis-store-spring-boot-starter
+              NEW: spring-ai-starter-vector-store-redis
+        -->
+        <spring-ai.version>1.0.0</spring-ai.version>
+
+        <!--
+            Spring Modulith 1.3.0 — compatible with Spring Boot 3.4.x
+        -->
+        <spring-modulith.version>1.3.0</spring-modulith.version>
+
+        <!--
+            TelegramBots 6.9.7.1 — last version of the 6.x series.
+            WARNING: telegrambots-spring-boot-starter 6.x is INCOMPATIBLE
+            with Spring Boot 3.x. We use the two new v7+ artifacts instead:
+              telegrambots-springboot-longpolling-starter
+              telegrambots-client
+            Both are Spring Boot 3 compatible and on Maven Central.
+        -->
+        <telegrambots.version>7.11.0</telegrambots.version>
+
+        <!-- Testcontainers 1.20.x — latest stable -->
+        <testcontainers.version>1.20.4</testcontainers.version>
+    </properties>
+
+    <!-- ═══════════════════════════════════════════════════════
+         BOM IMPORTS
+         ═══════════════════════════════════════════════════════ -->
+    <dependencyManagement>
+        <dependencies>
+
+            <dependency>
+                <groupId>org.springframework.modulith</groupId>
+                <artifactId>spring-modulith-bom</artifactId>
+                <version>${spring-modulith.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- ═══════════════════════════════════════════════════════
+         DEPENDENCIES
+         ═══════════════════════════════════════════════════════ -->
+    <dependencies>
+
+        <!-- ─────────────────────────────────────────────────
+             WEB — required for POST /webhook/payment
+             Bank sends payment notifications over HTTP
+             ───────────────────────────────────────────────── -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- ─────────────────────────────────────────────────
+             DATA — JPA + PostgreSQL + Flyway
+             ───────────────────────────────────────────────── -->
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- PostgreSQL JDBC driver — Hibernate cannot talk to PG without this -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Flyway core — runs V1 through V6 migration scripts -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+
+        <!--
+            Flyway PostgreSQL dialect — REQUIRED from Flyway 10+ (included in SB 3.4).
+            Without this Flyway silently fails to migrate on PostgreSQL.
+        -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <!-- ─────────────────────────────────────────────────
+             REDIS
+             Used for PIN sessions, billing sessions, attempt
+             counters via RedisTemplate (not HTTP sessions).
+             ───────────────────────────────────────────────── -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- ─────────────────────────────────────────────────
+             KAFKA
+             ───────────────────────────────────────────────── -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
+        <!-- ─────────────────────────────────────────────────
+             SPRING MODULITH
+             ───────────────────────────────────────────────── -->
+
+        <!-- Core — @ApplicationModule, ApplicationModules.verify() -->
+        <dependency>
+            <groupId>org.springframework.modulith</groupId>
+            <artifactId>spring-modulith-starter-core</artifactId>
+        </dependency>
+
+        <!--
+            JPA starter — includes spring-modulith-events-jpa (outbox).
+            Do NOT add spring-modulith-events-jdbc separately — conflict.
+        -->
+        <dependency>
+            <groupId>org.springframework.modulith</groupId>
+            <artifactId>spring-modulith-starter-jpa</artifactId>
+        </dependency>
+
+        <!-- Kafka publisher — delivers outbox events to Kafka topics at runtime -->
+        <dependency>
+            <groupId>org.springframework.modulith</groupId>
+            <artifactId>spring-modulith-events-kafka</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Actuator integration — /actuator/modulith endpoint -->
+        <dependency>
+            <groupId>org.springframework.modulith</groupId>
+            <artifactId>spring-modulith-actuator</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Observability — instruments module boundaries with OTel spans -->
+        <dependency>
+            <groupId>org.springframework.modulith</groupId>
+            <artifactId>spring-modulith-observability</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- ─────────────────────────────────────────────────
+             SPRING AI 1.0.0
+             All artifact IDs below are the NEW names introduced
+             in 1.0.0 GA. Older names will NOT resolve on 1.0.0.
+             ───────────────────────────────────────────────── -->
+
+        <!-- OpenAI — gpt-4o (chat) + text-embedding-3-small (embeddings) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
+
+        <!--
+            PGVector store — stores and searches knowledge_chunks embeddings.
+            NEW artifact ID: spring-ai-starter-vector-store-pgvector
+            OLD (do not use): spring-ai-pgvector-store-spring-boot-starter
+        -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
+        </dependency>
+
+        <!--
+            Redis vector store — used for AI chat memory per chatId.
+            NEW artifact ID: spring-ai-starter-vector-store-redis
+            OLD (do not use): spring-ai-redis-store-spring-boot-starter
+        -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-vector-store-redis</artifactId>
+        </dependency>
+
+        <!--
+            Vector store advisors — provides QuestionAnswerAdvisor for RAG.
+            Confirmed on Maven Central: spring-ai-advisors-vector-store 1.0.0
+        -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-advisors-vector-store</artifactId>
+        </dependency>
+
+        <!-- ─────────────────────────────────────────────────
+             TELEGRAM BOT
+             telegrambots-spring-boot-starter 6.9.7.1 is
+             INCOMPATIBLE with Spring Boot 3.x (Jakarta EE).
+             Use the two new Spring Boot 3 compatible artifacts:
+               - telegrambots-springboot-longpolling-starter
+               - telegrambots-client (OkHttp sender)
+             Official docs: rubenlagus.github.io/TelegramBotsDocumentation/lesson-9.html
+             ───────────────────────────────────────────────── -->
+        <dependency>
+            <groupId>org.telegram</groupId>
+            <artifactId>telegrambots-springboot-longpolling-starter</artifactId>
+            <version>${telegrambots.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.telegram</groupId>
+            <artifactId>telegrambots-client</artifactId>
+            <version>${telegrambots.version}</version>
+        </dependency>
+
+        <!-- ─────────────────────────────────────────────────
+             RETRY — @Retryable on VendorApiClient (3x, 2s→4s→8s)
+             AOP is required to proxy @Retryable at runtime
+             ───────────────────────────────────────────────── -->
+        <dependency>
+            <groupId>org.springframework.retry</groupId>
+            <artifactId>spring-retry</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
+        <!-- ─────────────────────────────────────────────────
+             OBSERVABILITY
+             ───────────────────────────────────────────────── -->
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Prometheus metrics — scraped by Grafana -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- OTel bridge — sends traces to Grafana Tempo via OTel Collector -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
+
+        <!-- ─────────────────────────────────────────────────
+             LOMBOK
+             ───────────────────────────────────────────────── -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- ─────────────────────────────────────────────────
+             TEST
+             ───────────────────────────────────────────────── -->
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.modulith</groupId>
+            <artifactId>spring-modulith-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>kafka</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+    <!-- ═══════════════════════════════════════════════════════
+         BUILD
+         ═══════════════════════════════════════════════════════ -->
+    <build>
+        <plugins>
+
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
+        </plugins>
+    </build>
+
+</project>
